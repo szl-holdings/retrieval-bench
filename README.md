@@ -19,7 +19,7 @@ The consolidated public bench lives at [betterwithage/szl-bench-suite](https://h
 
 Hardware truth is sourced from the published runtime witness ([szl-holdings/lutar-runtime-witness](https://github.com/szl-holdings/lutar-runtime-witness)), whose verifier recomputes every digest from source and fails closed on drift.
 
-**Division of labor:** this repo is the display and verification surface — receipt schema, verifier, and the public bench page. The measurement harness that produces receipted retrieval runs lives in [szl-holdings/szl-retrieval-bench](https://github.com/szl-holdings/szl-retrieval-bench); the Wave 1 consolidated bakeoff report is [szl-holdings/szl-wave1-report](https://github.com/szl-holdings/szl-wave1-report).
+**Division of labor:** this repo owns retrieval receipts and their fail-closed verifier. The single Space publisher lives in [szl-holdings/frontier-bench](https://github.com/szl-holdings/frontier-bench), which verifies and combines all three planes before one atomic Space commit. The measurement harness that produces receipted retrieval runs lives in [szl-holdings/szl-retrieval-bench](https://github.com/szl-holdings/szl-retrieval-bench); the Wave 1 consolidated bakeoff report is [szl-holdings/szl-wave1-report](https://github.com/szl-holdings/szl-wave1-report).
 
 ## Status
 
