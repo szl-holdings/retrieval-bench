@@ -1,4 +1,4 @@
-name: bench-pipeline
+name: receipt-verification
 
 on:
   push:
@@ -8,52 +8,23 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: receipt-verification-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Verify receipt chain (fail-closed)
         run: |
           set -euo pipefail
-          if compgen -G "receipts/*.json" > /dev/null; then
-            python verify/verifier.py receipts/*.json
-          else
-            echo "no receipts yet - nothing to verify"
-          fi
-
-  publish:
-    needs: verify
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Export verified results (MEASURED only)
-        run: python tools/sync_results.py receipts site/results.json
-      - name: Publish results.json to betterwithage/szl-bench-suite
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${HF_TOKEN:-}" ]; then
-            echo "SKIPPED: HF_TOKEN secret not configured on this repo; results verified locally but not published"
-            exit 0
-          fi
-          pip install --quiet huggingface_hub
-          python - <<'PY'
-          from huggingface_hub import HfApi
-          HfApi().upload_file(
-              path_or_fileobj="site/results.json",
-              path_in_repo="results.json",
-              repo_id="betterwithage/szl-bench-suite",
-              repo_type="space",
-              commit_message="chore: publish verified bench results (retrieval-bench)",
-          )
-          print("published verified results to the bench Space")
-          PY
+          compgen -G "receipts/*.json" > /dev/null || {
+            echo "receipt chain is missing" >&2
+            exit 2
+          }
+          python verify/verifier.py receipts/*.json
