@@ -12,3 +12,4 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: python tests/test_retrieval.py
+      - run: python tests/test_multivector.py

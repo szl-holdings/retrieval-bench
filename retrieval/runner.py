@@ -9,6 +9,9 @@ Retrieval benchmark runner with five-state run vocabulary:
 
 Receipts bind dataset hash, qrels hash, model revision, config, and result
 hash into a SHA-256 chain — tamper-evident, UNSIGNED_HONEST (no identity key).
+
+v0.2 adds the multivector (late-interaction) lane, kept strictly separate
+from single-vector comparisons.
 """
 import hashlib
 import json
@@ -19,6 +22,7 @@ from typing import Dict, List, Optional
 
 from .bm25 import BM25Index
 from .fusion import DenseRetriever, CrossEncoderReranker, reciprocal_rank_fusion, EndpointUnavailable
+from .multivector import LateInteractionIndex, EncoderUnavailable
 from .metrics import evaluate
 
 
@@ -150,9 +154,37 @@ class BenchRunner:
         except Exception as e:
             return self._record("rerank", "FAILED", corpus, qrels, model_revision, config, None, repr(e))
 
+    def run_multivector(self, corpus: Dict[str, str], queries: Dict[str, str],
+                        qrels: Dict[str, Dict[str, int]], encoder=None,
+                        model_revision: str = "unconfigured", top_k: int = 10):
+        """Late-interaction lane (ColBERT-style MaxSim over token vectors).
+
+        Kept strictly separate from single-vector lanes: index cost and memory
+        differ by an order of magnitude, so cross-family comparisons are INVALID.
+        Without a token-level encoder the lane is BLOCKED, never simulated.
+        """
+        idx = LateInteractionIndex(encoder)
+        config = {"top_k": top_k, "encoder_set": encoder is not None,
+                  "family": "multivector"}
+        if not idx.is_configured():
+            return self._record("multivector", "BLOCKED", corpus, qrels, model_revision,
+                                config, None, "no token-level encoder configured")
+        try:
+            idx.index(list(corpus.keys()), list(corpus.values()))
+            run = {qid: [d for d, _ in idx.search(q, top_k)] for qid, q in queries.items()}
+            metrics = evaluate(run, qrels, ks=(1, 5, 10))
+            return self._record("multivector", "MEASURED", corpus, qrels, model_revision,
+                                config, metrics)
+        except EncoderUnavailable as e:
+            return self._record("multivector", "BLOCKED", corpus, qrels, model_revision,
+                                config, None, str(e))
+        except Exception as e:
+            return self._record("multivector", "FAILED", corpus, qrels, model_revision,
+                                config, None, repr(e))
+
     def compare(self, receipt_a_id: str, receipt_b_id: str) -> dict:
-        """Fairness gate: two runs may only be compared if dataset, qrels, and
-        candidate pool sizes match. Otherwise the comparison itself is INVALID."""
+        """Fairness gate: two runs may only be compared if dataset, qrels, family,
+        and candidate pool sizes match. Otherwise the comparison itself is INVALID."""
         a = next((r for r in self.receipts if r.run_id == receipt_a_id), None)
         b = next((r for r in self.receipts if r.run_id == receipt_b_id), None)
         if a is None or b is None:
@@ -161,6 +193,10 @@ class BenchRunner:
             return {"status": "INVALID", "reason": "both runs must be MEASURED to compare"}
         if a.dataset_hash != b.dataset_hash or a.qrels_hash != b.qrels_hash:
             return {"status": "INVALID", "reason": "dataset or qrels mismatch"}
+        fa, fb = a.config.get("family", "single-vector"), b.config.get("family", "single-vector")
+        if fa != fb:
+            return {"status": "INVALID",
+                    "reason": f"retrieval family mismatch: {fa} vs {fb} — cross-family comparison is not evidence"}
         pa, pb = a.config.get("pool_size"), b.config.get("pool_size")
         if pa is not None and pb is not None and pa != pb:
             return {"status": "INVALID", "reason": f"candidate pool size mismatch: {pa} vs {pb}"}
