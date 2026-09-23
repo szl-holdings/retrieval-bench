@@ -7,8 +7,9 @@ Retrieval benchmark runner with five-state run vocabulary:
 - FAILED: execution started but errored
 - PROMOTED: passed effectiveness + operational gates (set only by compare/promote)
 
-Receipts bind dataset hash, qrels hash, model revision, config, and result
-hash into a SHA-256 chain — tamper-evident, UNSIGNED_HONEST (no identity key).
+Receipts bind dataset hash, query-set hash, qrels hash, model revision, config,
+and result hash. Query provenance is part of the evidence contract because changing
+query text can change retrieval metrics even when corpus and qrels are unchanged.
 
 v0.2 adds the multivector (late-interaction) lane, kept strictly separate
 from single-vector comparisons.
@@ -36,6 +37,7 @@ class RunReceipt:
     lane: str
     status: str
     dataset_hash: str
+    query_hash: str
     qrels_hash: str
     model_revision: str
     config: dict
@@ -52,13 +54,14 @@ class BenchRunner:
     def __init__(self):
         self.receipts: List[RunReceipt] = []
 
-    def _record(self, lane, status, corpus, qrels, model_rev, config, metrics=None, detail=""):
+    def _record(self, lane, status, corpus, queries, qrels, model_rev, config, metrics=None, detail=""):
         result_hash = _hash(metrics) if metrics is not None else None
         r = RunReceipt(
             run_id=str(uuid.uuid4()),
             lane=lane,
             status=status,
             dataset_hash=_hash(corpus),
+            query_hash=_hash(queries),
             qrels_hash=_hash(qrels),
             model_revision=model_rev,
             config=config,
@@ -77,10 +80,10 @@ class BenchRunner:
             idx.index(list(corpus.keys()), list(corpus.values()))
             run = {qid: [d for d, _ in idx.search(q, top_k)] for qid, q in queries.items()}
             metrics = evaluate(run, qrels, ks=(1, 5, 10))
-            return self._record("sparse_bm25", "MEASURED", corpus, qrels,
+            return self._record("sparse_bm25", "MEASURED", corpus, queries, qrels,
                                 f"bm25-k1={k1}-b={b}", {"top_k": top_k}, metrics)
         except Exception as e:
-            return self._record("sparse_bm25", "FAILED", corpus, qrels,
+            return self._record("sparse_bm25", "FAILED", corpus, queries, qrels,
                                 f"bm25-k1={k1}-b={b}", {"top_k": top_k}, None, repr(e))
 
     def run_dense(self, corpus: Dict[str, str], queries: Dict[str, str],
@@ -89,29 +92,29 @@ class BenchRunner:
         retriever = DenseRetriever(endpoint, model)
         config = {"top_k": top_k, "endpoint_set": endpoint is not None}
         if not retriever.is_configured():
-            return self._record("dense", "BLOCKED", corpus, qrels, model_revision, config,
+            return self._record("dense", "BLOCKED", corpus, queries, qrels, model_revision, config,
                                 None, "no embedding endpoint configured")
         try:
             retriever.index(list(corpus.keys()), list(corpus.values()))
             run = {qid: [d for d, _ in retriever.search(q, top_k)] for qid, q in queries.items()}
             metrics = evaluate(run, qrels, ks=(1, 5, 10))
-            return self._record("dense", "MEASURED", corpus, qrels, model_revision, config, metrics)
+            return self._record("dense", "MEASURED", corpus, queries, qrels, model_revision, config, metrics)
         except EndpointUnavailable as e:
-            return self._record("dense", "BLOCKED", corpus, qrels, model_revision, config, None, str(e))
+            return self._record("dense", "BLOCKED", corpus, queries, qrels, model_revision, config, None, str(e))
         except Exception as e:
-            return self._record("dense", "FAILED", corpus, qrels, model_revision, config, None, repr(e))
+            return self._record("dense", "FAILED", corpus, queries, qrels, model_revision, config, None, repr(e))
 
     def run_hybrid(self, corpus, queries, qrels, dense_endpoint, model, model_revision,
                    k1=1.5, b=0.75, rrf_k=60, top_k=10):
         sparse_receipt = self.run_sparse(corpus, queries, qrels, k1, b, top_k)
         if sparse_receipt.status != "MEASURED":
-            return self._record("hybrid", "FAILED", corpus, qrels, model_revision,
+            return self._record("hybrid", "FAILED", corpus, queries, qrels, model_revision,
                                 {"stage": "sparse"}, None, "sparse stage failed")
 
         dense = DenseRetriever(dense_endpoint, model)
         config = {"rrf_k": rrf_k, "top_k": top_k, "endpoint_set": dense_endpoint is not None}
         if not dense.is_configured():
-            return self._record("hybrid", "BLOCKED", corpus, qrels, model_revision, config,
+            return self._record("hybrid", "BLOCKED", corpus, queries, qrels, model_revision, config,
                                 None, "dense endpoint unavailable — hybrid fusion impossible")
         try:
             idx = BM25Index(k1=k1, b=b)
@@ -124,11 +127,11 @@ class BenchRunner:
                 fused = reciprocal_rank_fusion([s_list, d_list], k=rrf_k)
                 run[qid] = [d for d, _ in fused[:top_k]]
             metrics = evaluate(run, qrels, ks=(1, 5, 10))
-            return self._record("hybrid_rrf", "MEASURED", corpus, qrels, model_revision, config, metrics)
+            return self._record("hybrid_rrf", "MEASURED", corpus, queries, qrels, model_revision, config, metrics)
         except EndpointUnavailable as e:
-            return self._record("hybrid_rrf", "BLOCKED", corpus, qrels, model_revision, config, None, str(e))
+            return self._record("hybrid_rrf", "BLOCKED", corpus, queries, qrels, model_revision, config, None, str(e))
         except Exception as e:
-            return self._record("hybrid_rrf", "FAILED", corpus, qrels, model_revision, config, None, repr(e))
+            return self._record("hybrid_rrf", "FAILED", corpus, queries, qrels, model_revision, config, None, repr(e))
 
     def run_rerank(self, corpus, queries, qrels, first_stage_run: Dict[str, List[str]],
                    rerank_endpoint: Optional[str], model: str, model_revision: str,
@@ -138,7 +141,7 @@ class BenchRunner:
         reranker = CrossEncoderReranker(rerank_endpoint, model)
         config = {"pool_size": pool_size, "endpoint_set": rerank_endpoint is not None}
         if not reranker.is_configured():
-            return self._record("rerank", "BLOCKED", corpus, qrels, model_revision, config,
+            return self._record("rerank", "BLOCKED", corpus, queries, qrels, model_revision, config,
                                 None, "no rerank endpoint configured")
         try:
             run = {}
@@ -148,11 +151,11 @@ class BenchRunner:
                 ranked = reranker.rerank(q, candidates)
                 run[qid] = [d for d, _ in ranked]
             metrics = evaluate(run, qrels, ks=(1, 5, 10))
-            return self._record("rerank", "MEASURED", corpus, qrels, model_revision, config, metrics)
+            return self._record("rerank", "MEASURED", corpus, queries, qrels, model_revision, config, metrics)
         except EndpointUnavailable as e:
-            return self._record("rerank", "BLOCKED", corpus, qrels, model_revision, config, None, str(e))
+            return self._record("rerank", "BLOCKED", corpus, queries, qrels, model_revision, config, None, str(e))
         except Exception as e:
-            return self._record("rerank", "FAILED", corpus, qrels, model_revision, config, None, repr(e))
+            return self._record("rerank", "FAILED", corpus, queries, qrels, model_revision, config, None, repr(e))
 
     def run_multivector(self, corpus: Dict[str, str], queries: Dict[str, str],
                         qrels: Dict[str, Dict[str, int]], encoder=None,
@@ -167,32 +170,33 @@ class BenchRunner:
         config = {"top_k": top_k, "encoder_set": encoder is not None,
                   "family": "multivector"}
         if not idx.is_configured():
-            return self._record("multivector", "BLOCKED", corpus, qrels, model_revision,
+            return self._record("multivector", "BLOCKED", corpus, queries, qrels, model_revision,
                                 config, None, "no token-level encoder configured")
         try:
             idx.index(list(corpus.keys()), list(corpus.values()))
             run = {qid: [d for d, _ in idx.search(q, top_k)] for qid, q in queries.items()}
             metrics = evaluate(run, qrels, ks=(1, 5, 10))
-            return self._record("multivector", "MEASURED", corpus, qrels, model_revision,
+            return self._record("multivector", "MEASURED", corpus, queries, qrels, model_revision,
                                 config, metrics)
         except EncoderUnavailable as e:
-            return self._record("multivector", "BLOCKED", corpus, qrels, model_revision,
+            return self._record("multivector", "BLOCKED", corpus, queries, qrels, model_revision,
                                 config, None, str(e))
         except Exception as e:
-            return self._record("multivector", "FAILED", corpus, qrels, model_revision,
+            return self._record("multivector", "FAILED", corpus, queries, qrels, model_revision,
                                 config, None, repr(e))
 
     def compare(self, receipt_a_id: str, receipt_b_id: str) -> dict:
-        """Fairness gate: two runs may only be compared if dataset, qrels, family,
-        and candidate pool sizes match. Otherwise the comparison itself is INVALID."""
+        """Fairness gate: two runs may only be compared if dataset, query set,
+        qrels, family, and candidate pool sizes match. Otherwise the comparison
+        itself is INVALID."""
         a = next((r for r in self.receipts if r.run_id == receipt_a_id), None)
         b = next((r for r in self.receipts if r.run_id == receipt_b_id), None)
         if a is None or b is None:
             return {"status": "INVALID", "reason": "unknown run id"}
         if a.status != "MEASURED" or b.status != "MEASURED":
             return {"status": "INVALID", "reason": "both runs must be MEASURED to compare"}
-        if a.dataset_hash != b.dataset_hash or a.qrels_hash != b.qrels_hash:
-            return {"status": "INVALID", "reason": "dataset or qrels mismatch"}
+        if a.dataset_hash != b.dataset_hash or a.query_hash != b.query_hash or a.qrels_hash != b.qrels_hash:
+            return {"status": "INVALID", "reason": "dataset, query set, or qrels mismatch"}
         fa, fb = a.config.get("family", "single-vector"), b.config.get("family", "single-vector")
         if fa != fb:
             return {"status": "INVALID",

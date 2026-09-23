@@ -63,6 +63,16 @@ def test_runner_sparse_measured():
     assert r.status == "MEASURED"
     assert r.metrics["ndcg@10"] == 1.0
 
+def test_receipt_binds_query_set():
+    runner = BenchRunner()
+    a = runner.run_sparse(CORPUS, QUERIES, QRELS, top_k=5)
+    changed = dict(QUERIES)
+    changed["q1"] = "dog loyalty"
+    b = runner.run_sparse(CORPUS, changed, QRELS, top_k=5)
+    assert a.dataset_hash == b.dataset_hash
+    assert a.qrels_hash == b.qrels_hash
+    assert a.query_hash != b.query_hash
+
 def test_runner_dense_blocked_without_endpoint():
     r = BenchRunner().run_dense(CORPUS, QUERIES, QRELS, None, "m", "rev")
     assert r.status == "BLOCKED"
@@ -81,6 +91,16 @@ def test_compare_rejects_pool_mismatch():
     b = runner.run_sparse(CORPUS, QUERIES, QRELS, top_k=5)
     a.config["pool_size"], b.config["pool_size"] = 100, 25
     assert runner.compare(a.run_id, b.run_id)["status"] == "INVALID"
+
+def test_compare_rejects_query_mismatch():
+    runner = BenchRunner()
+    a = runner.run_sparse(CORPUS, QUERIES, QRELS, top_k=5)
+    changed = dict(QUERIES)
+    changed["q1"] = "dog loyalty"
+    b = runner.run_sparse(CORPUS, changed, QRELS, top_k=5)
+    result = runner.compare(a.run_id, b.run_id)
+    assert result["status"] == "INVALID"
+    assert "query set" in result["reason"]
 
 def test_compare_valid_pair():
     runner = BenchRunner()
