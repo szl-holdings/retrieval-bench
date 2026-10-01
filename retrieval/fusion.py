@@ -17,45 +17,40 @@ class EndpointUnavailable(Exception):
     pass
 
 
-ENDPOINT_ALLOWLIST_ENV = "RETRIEVAL_BENCH_ENDPOINT_ORIGINS"
+ENDPOINT_ALLOWLIST_ENV = "RETRIEVAL_BENCH_ENDPOINTS"
 
 
-def allowed_endpoint_origins() -> frozenset:
-    """Operator-configured embedding/rerank origins, e.g. ``https://embed.internal:8443``.
+def allowed_endpoints() -> Tuple[str, ...]:
+    """Operator-configured embedding/rerank endpoints, e.g. ``https://embed.internal:8443/v1/embeddings``.
 
-    Comma-separated ``scheme://host[:port]`` values. Empty means no remote endpoint is
-    admitted and every dense/rerank lane returns BLOCKED — never a request to a URL that a
-    caller chose (CodeQL py/full-ssrf).
+    Comma-separated absolute http(s) URLs. Empty means no remote endpoint is admitted and every
+    dense/rerank lane returns BLOCKED — the plane never issues a request to a URL a caller chose
+    (CodeQL py/full-ssrf).
     """
     raw = os.environ.get(ENDPOINT_ALLOWLIST_ENV, "")
-    origins = set()
+    endpoints = []
     for item in raw.split(","):
-        item = item.strip().rstrip("/")
+        item = item.strip()
         if not item:
             continue
         parts = urlsplit(item)
-        if parts.scheme in ("http", "https") and parts.hostname:
-            origins.add(f"{parts.scheme}://{parts.netloc.lower()}")
-    return frozenset(origins)
+        if parts.scheme in ("http", "https") and parts.hostname and not parts.username and not parts.password:
+            endpoints.append(item)
+    return tuple(endpoints)
 
 
 def admit_endpoint(endpoint: Optional[str]) -> Optional[str]:
-    """Return the endpoint only when its origin is on the operator allowlist, else None.
+    """Return the operator-configured endpoint that exactly equals the request's, else None.
 
-    The returned value is rebuilt from the allowlisted origin plus the request path/query, so
-    the string handed to the HTTP client is derived from operator configuration, not from the
-    caller's bytes alone. Credentials, fragments, and unknown origins are refused.
+    A request can only *select* among configured endpoints; the string handed to the HTTP
+    client is the operator's own constant, never the caller's bytes.
     """
     if not endpoint:
         return None
-    parts = urlsplit(str(endpoint))
-    if parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password or parts.fragment:
-        return None
-    origin = f"{parts.scheme}://{parts.netloc.lower()}"
-    for allowed in allowed_endpoint_origins():
-        if origin == allowed:
-            path = parts.path or "/"
-            return allowed + path + (f"?{parts.query}" if parts.query else "")
+    wanted = str(endpoint).strip()
+    for configured in allowed_endpoints():
+        if configured == wanted:
+            return configured
     return None
 
 
