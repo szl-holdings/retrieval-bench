@@ -6,18 +6,66 @@ API and a cross-encoder scoring API). If no endpoint is configured the lane
 returns BLOCKED — never a fabricated embedding or score.
 """
 import json
+import os
 import urllib.request
 import urllib.error
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 
 class EndpointUnavailable(Exception):
     pass
 
 
+ENDPOINT_ALLOWLIST_ENV = "RETRIEVAL_BENCH_ENDPOINT_ORIGINS"
+
+
+def allowed_endpoint_origins() -> frozenset:
+    """Operator-configured embedding/rerank origins, e.g. ``https://embed.internal:8443``.
+
+    Comma-separated ``scheme://host[:port]`` values. Empty means no remote endpoint is
+    admitted and every dense/rerank lane returns BLOCKED — never a request to a URL that a
+    caller chose (CodeQL py/full-ssrf).
+    """
+    raw = os.environ.get(ENDPOINT_ALLOWLIST_ENV, "")
+    origins = set()
+    for item in raw.split(","):
+        item = item.strip().rstrip("/")
+        if not item:
+            continue
+        parts = urlsplit(item)
+        if parts.scheme in ("http", "https") and parts.hostname:
+            origins.add(f"{parts.scheme}://{parts.netloc.lower()}")
+    return frozenset(origins)
+
+
+def admit_endpoint(endpoint: Optional[str]) -> Optional[str]:
+    """Return the endpoint only when its origin is on the operator allowlist, else None.
+
+    The returned value is rebuilt from the allowlisted origin plus the request path/query, so
+    the string handed to the HTTP client is derived from operator configuration, not from the
+    caller's bytes alone. Credentials, fragments, and unknown origins are refused.
+    """
+    if not endpoint:
+        return None
+    parts = urlsplit(str(endpoint))
+    if parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password or parts.fragment:
+        return None
+    origin = f"{parts.scheme}://{parts.netloc.lower()}"
+    for allowed in allowed_endpoint_origins():
+        if origin == allowed:
+            path = parts.path or "/"
+            return allowed + path + (f"?{parts.query}" if parts.query else "")
+    return None
+
+
 def _post_json(url: str, payload: dict, timeout: float = 30.0) -> dict:
+    admitted = admit_endpoint(url)
+    if admitted is None:
+        raise EndpointUnavailable(
+            f"endpoint origin is not on the operator allowlist ({ENDPOINT_ALLOWLIST_ENV})")
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(admitted, data=data, headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
@@ -30,7 +78,8 @@ class DenseRetriever:
     endpoint and ranks by cosine similarity computed in pure Python."""
 
     def __init__(self, endpoint: Optional[str], model: str, timeout: float = 30.0):
-        self.endpoint = endpoint
+        # Only an operator-allowlisted origin is ever stored; anything else is None -> BLOCKED.
+        self.endpoint = admit_endpoint(endpoint)
         self.model = model
         self.timeout = timeout
 
@@ -77,7 +126,7 @@ class CrossEncoderReranker:
     comparing rerankers over different pool sizes is INVALID."""
 
     def __init__(self, endpoint: Optional[str], model: str, timeout: float = 60.0):
-        self.endpoint = endpoint
+        self.endpoint = admit_endpoint(endpoint)  # allowlisted origin or None -> BLOCKED
         self.model = model
         self.timeout = timeout
 
