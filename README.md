@@ -30,3 +30,7 @@ The consolidated public bench is published by [szl-holdings/frontier-bench](http
 ## Status
 
 Foundation source is present. Current admitted measurement state is **EMPTY / BLOCKED genesis only**. Real benchmark execution and any later promotion remain separate evidence-producing steps.
+
+## Remote endpoint admission
+
+Dense and rerank lanes call an operator-configured embedding or rerank service. The API accepts an `endpoint` / `dense_endpoint` / `rerank_endpoint` field, but a request can only select among origins the operator has allowlisted in `RETRIEVAL_BENCH_ENDPOINT_ORIGINS` (comma-separated `scheme://host[:port]`). With the variable unset, every remote lane returns `BLOCKED` — the plane never issues a request to a caller-chosen URL.
