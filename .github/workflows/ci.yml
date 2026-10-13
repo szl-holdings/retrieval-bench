@@ -17,3 +17,4 @@ jobs:
       - run: python tests/test_verifier.py
       - run: python tests/test_retrieval.py
       - run: python tests/test_multivector.py
+      - run: python tests/test_bench_suite_target.py
