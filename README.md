@@ -36,7 +36,7 @@ The checked-in retrieval receipt chain currently contains only `receipts/000-gen
 
 ## Public surface
 
-The consolidated public bench is published by [szl-holdings/frontier-bench](https://github.com/szl-holdings/frontier-bench) to [betterwithage/szl-bench-suite](https://huggingface.co/spaces/betterwithage/szl-bench-suite). Provider publication, runtime readback, and public presentation are separate qualification stages from this repository's source and receipt verification.
+The consolidated public bench publisher, [szl-holdings/frontier-bench](https://github.com/szl-holdings/frontier-bench), targets the Hugging Face Space [SZLHOLDINGS/szl-bench-suite](https://huggingface.co/spaces/SZLHOLDINGS/szl-bench-suite) (Retrieval tab). Provider publication, runtime readback, and public presentation are separate qualification stages from this repository's source and receipt verification.
 
 **Division of labor:** this repository owns retrieval receipt verification and retrieval-plane source. The measurement harness that produces receipted retrieval runs lives in [szl-holdings/szl-retrieval-bench](https://github.com/szl-holdings/szl-retrieval-bench); the consolidated publisher lives in [szl-holdings/frontier-bench](https://github.com/szl-holdings/frontier-bench); and the Wave 1 consolidated bakeoff report lives in [szl-holdings/szl-wave1-report](https://github.com/szl-holdings/szl-wave1-report).
 
