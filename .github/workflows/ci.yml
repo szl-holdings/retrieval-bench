@@ -18,3 +18,7 @@ jobs:
       - run: python tests/test_retrieval.py
       - run: python tests/test_multivector.py
       - run: python tests/test_bench_suite_target.py
+      - name: Install pytest (pinned) for the pytest-style endpoint admission suite
+        run: python -m pip install --disable-pip-version-check "pytest==9.1.1"
+      - name: Endpoint admission (operator allowlist, CodeQL py/full-ssrf)
+        run: python -m pytest -q tests/test_endpoint_admission.py
