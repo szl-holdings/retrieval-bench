@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# Packaging metadata for the retrieval package (PEP 517 / PEP 621).
+#
+# Only retrieval/ is packaged. api/, app/, verify/ and tools/ stay as files run
+# from a checkout, as CI, bench.yml and the Dockerfile already run them.
+# Runtime dependencies stay in requirements.txt; retrieval/ itself imports only
+# the standard library. No tag or release exists, so the version is a
+# placeholder.
+
+[build-system]
+# 77 is the first setuptools that accepts an SPDX string for project.license.
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "retrieval-bench"
+version = "0.0.0"
+description = "Retrieval benchmark code: dense, sparse, rerank, hybrid and multivector evaluation paths."
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+
+[tool.setuptools]
+packages = ["retrieval"]
