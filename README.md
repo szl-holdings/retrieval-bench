@@ -32,6 +32,7 @@ The checked-in retrieval receipt chain currently contains only `receipts/000-gen
 - **Dense and sparse support** — ANN/dense and BM25 paths are implemented under the same harness; implementation availability is not evidence of measured parity or superiority.
 - **Honest labels** — measured claims require admitted receipts with corpus/input provenance, hardware, date, method, and metrics.
 - **Fail-closed publication** — `tools/sync_results.py` exports only hash-chain-verified `MEASURED` receipts; non-measured states remain absent from the public results payload.
+- **Receipt input admission** — receipts and their metrics must be JSON objects. Duplicate keys and non-finite numbers are rejected before publication; a malformed record rejects the whole chain and leaves an existing results file unchanged. These checks validate structure and integrity, not the truth of caller-supplied measurements.
 - **Integrity boundary** — the receipt chain is tamper-evident but unsigned; it proves continuity/integrity, not independent signer or hardware identity.
 
 ## Public surface
