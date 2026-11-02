@@ -2,9 +2,18 @@
 Ranking evaluation metrics: Recall@k, MRR@k, MAP@k, nDCG@k.
 Self-contained implementations cross-checked against trec_eval semantics.
 All metrics operate only on real run outputs and real qrels.
+Repeated document identities in an evaluated top-k prefix are invalid.
 """
 import math
 from typing import Dict, List, Set
+
+
+def _ranking_at_k(run: Dict[str, List[str]], qid: str, k: int) -> List[str]:
+    """Keep the original cutoff and positions; never silently deduplicate."""
+    retrieved = run.get(qid, [])[:k]
+    if len(retrieved) != len(set(retrieved)):
+        raise ValueError(f"duplicate document IDs in top-k ranking for query {qid!r}")
+    return retrieved
 
 
 def recall_at_k(run: Dict[str, List[str]], qrels: Dict[str, Set[str]], k: int) -> float:
@@ -12,7 +21,7 @@ def recall_at_k(run: Dict[str, List[str]], qrels: Dict[str, Set[str]], k: int) -
     for qid, rel_docs in qrels.items():
         if not rel_docs:
             continue
-        retrieved = run.get(qid, [])[:k]
+        retrieved = _ranking_at_k(run, qid, k)
         hits = len(set(retrieved) & rel_docs)
         recalls.append(hits / len(rel_docs))
     return sum(recalls) / len(recalls) if recalls else 0.0
@@ -23,7 +32,7 @@ def mrr_at_k(run: Dict[str, List[str]], qrels: Dict[str, Set[str]], k: int) -> f
     for qid, rel_docs in qrels.items():
         if not rel_docs:
             continue
-        retrieved = run.get(qid, [])[:k]
+        retrieved = _ranking_at_k(run, qid, k)
         rr = 0.0
         for rank, docid in enumerate(retrieved, start=1):
             if docid in rel_docs:
@@ -38,7 +47,7 @@ def map_at_k(run: Dict[str, List[str]], qrels: Dict[str, Set[str]], k: int) -> f
     for qid, rel_docs in qrels.items():
         if not rel_docs:
             continue
-        retrieved = run.get(qid, [])[:k]
+        retrieved = _ranking_at_k(run, qid, k)
         hits, prec_sum = 0, 0.0
         for rank, docid in enumerate(retrieved, start=1):
             if docid in rel_docs:
@@ -57,7 +66,7 @@ def ndcg_at_k(run: Dict[str, List[str]], qrels_graded: Dict[str, Dict[str, int]]
     for qid, grades in qrels_graded.items():
         if not grades:
             continue
-        retrieved = run.get(qid, [])[:k]
+        retrieved = _ranking_at_k(run, qid, k)
         actual = [grades.get(d, 0) for d in retrieved]
         ideal = sorted(grades.values(), reverse=True)[:k]
         idcg = _dcg(ideal)
