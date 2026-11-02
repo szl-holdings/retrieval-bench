@@ -7,7 +7,22 @@ import math
 from typing import Dict, List, Set
 
 
+def _validate_ranking(run, k):
+    if type(k) is not int or k < 1:
+        raise ValueError("metric cutoff must be a positive integer")
+    for ranking in run.values():
+        if not isinstance(ranking, (list, tuple)):
+            raise ValueError("ranking must be an ordered list of document identifiers")
+        try:
+            unique = set(ranking)
+        except TypeError as exc:
+            raise ValueError("ranking document identifiers must be hashable") from exc
+        if len(unique) != len(ranking):
+            raise ValueError("ranking contains duplicate document identifiers")
+
+
 def recall_at_k(run: Dict[str, List[str]], qrels: Dict[str, Set[str]], k: int) -> float:
+    _validate_ranking(run, k)
     recalls = []
     for qid, rel_docs in qrels.items():
         if not rel_docs:
@@ -19,6 +34,7 @@ def recall_at_k(run: Dict[str, List[str]], qrels: Dict[str, Set[str]], k: int) -
 
 
 def mrr_at_k(run: Dict[str, List[str]], qrels: Dict[str, Set[str]], k: int) -> float:
+    _validate_ranking(run, k)
     rrs = []
     for qid, rel_docs in qrels.items():
         if not rel_docs:
@@ -34,6 +50,7 @@ def mrr_at_k(run: Dict[str, List[str]], qrels: Dict[str, Set[str]], k: int) -> f
 
 
 def map_at_k(run: Dict[str, List[str]], qrels: Dict[str, Set[str]], k: int) -> float:
+    _validate_ranking(run, k)
     aps = []
     for qid, rel_docs in qrels.items():
         if not rel_docs:
@@ -53,6 +70,7 @@ def _dcg(gains: List[float]) -> float:
 
 
 def ndcg_at_k(run: Dict[str, List[str]], qrels_graded: Dict[str, Dict[str, int]], k: int) -> float:
+    _validate_ranking(run, k)
     scores = []
     for qid, grades in qrels_graded.items():
         if not grades:
