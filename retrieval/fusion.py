@@ -54,7 +54,13 @@ def admit_endpoint(endpoint: Optional[str]) -> Optional[str]:
     return None
 
 
-def _post_json(url: str, payload: dict, timeout: float = 30.0) -> dict:
+class _RejectRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # The configured URL is the whole admission boundary, not only a first hop.
+        raise EndpointUnavailable("endpoint redirects are not allowed; configure the final URL")
+
+
+def _post_json(url: str, payload: dict, timeout: float = 30.0) -> dict | list:
     admitted = admit_endpoint(url)
     if admitted is None:
         raise EndpointUnavailable(
@@ -62,7 +68,8 @@ def _post_json(url: str, payload: dict, timeout: float = 30.0) -> dict:
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(admitted, data=data, headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        opener = urllib.request.build_opener(_RejectRedirects())
+        with opener.open(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
         raise EndpointUnavailable(str(e))
@@ -84,8 +91,7 @@ class DenseRetriever:
     def _embed(self, texts: List[str]) -> List[List[float]]:
         if not self.endpoint:
             raise EndpointUnavailable("no embedding endpoint configured")
-        url = self.endpoint.rstrip("/") + "/v1/embeddings"
-        body = _post_json(url, {"model": self.model, "input": texts}, self.timeout)
+        body = _post_json(self.endpoint, {"model": self.model, "input": texts}, self.timeout)
         return [d["embedding"] for d in sorted(body["data"], key=lambda x: x["index"])]
 
     @staticmethod
@@ -132,13 +138,12 @@ class CrossEncoderReranker:
         """candidates: [(doc_id, doc_text)] -> [(doc_id, score)] sorted desc."""
         if not self.endpoint:
             raise EndpointUnavailable("no rerank endpoint configured")
-        url = self.endpoint.rstrip("/") + "/rerank"
-        body = _post_json(url, {
+        body = _post_json(self.endpoint, {
             "model": self.model,
             "query": query,
             "texts": [t for _, t in candidates],
         }, self.timeout)
-        results = body.get("results", body if isinstance(body, list) else [])
+        results = body if isinstance(body, list) else body.get("results", [])
         scored = [(candidates[r["index"]][0], r.get("relevance_score", r.get("score", 0.0)))
                   for r in results]
         scored.sort(key=lambda x: x[1], reverse=True)
