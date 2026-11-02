@@ -54,6 +54,19 @@ class BenchRunner:
     def __init__(self):
         self.receipts: List[RunReceipt] = []
 
+    def _missing_input_receipt(self, lane, corpus, queries, qrels, model_rev, config):
+        """Missing evaluation inputs block before index/endpoint work begins.
+
+        Nonempty qrels with zero grades or unjudged individual queries remain
+        valid inputs; a measured zero is different from no evaluation cohort.
+        """
+        missing = [name for name, value in (("corpus", corpus), ("queries", queries),
+                                           ("qrels", qrels)) if not value]
+        if missing:
+            return self._record(lane, "BLOCKED", corpus, queries, qrels, model_rev,
+                                config, None, "empty " + ", ".join(missing))
+        return None
+
     def _record(self, lane, status, corpus, queries, qrels, model_rev, config, metrics=None, detail=""):
         result_hash = _hash(metrics) if metrics is not None else None
         r = RunReceipt(
@@ -75,6 +88,10 @@ class BenchRunner:
 
     def run_sparse(self, corpus: Dict[str, str], queries: Dict[str, str],
                    qrels: Dict[str, Dict[str, int]], k1=1.5, b=0.75, top_k=10):
+        blocked = self._missing_input_receipt("sparse_bm25", corpus, queries, qrels,
+                                             f"bm25-k1={k1}-b={b}", {"top_k": top_k})
+        if blocked is not None:
+            return blocked
         try:
             idx = BM25Index(k1=k1, b=b)
             idx.index(list(corpus.keys()), list(corpus.values()))
@@ -89,8 +106,11 @@ class BenchRunner:
     def run_dense(self, corpus: Dict[str, str], queries: Dict[str, str],
                   qrels: Dict[str, Dict[str, int]], endpoint: Optional[str],
                   model: str, model_revision: str, top_k=10):
-        retriever = DenseRetriever(endpoint, model)
         config = {"top_k": top_k, "endpoint_set": endpoint is not None}
+        blocked = self._missing_input_receipt("dense", corpus, queries, qrels, model_revision, config)
+        if blocked is not None:
+            return blocked
+        retriever = DenseRetriever(endpoint, model)
         if not retriever.is_configured():
             return self._record("dense", "BLOCKED", corpus, queries, qrels, model_revision, config,
                                 None, "no embedding endpoint configured")
@@ -106,13 +126,16 @@ class BenchRunner:
 
     def run_hybrid(self, corpus, queries, qrels, dense_endpoint, model, model_revision,
                    k1=1.5, b=0.75, rrf_k=60, top_k=10):
+        config = {"rrf_k": rrf_k, "top_k": top_k, "endpoint_set": dense_endpoint is not None}
+        blocked = self._missing_input_receipt("hybrid", corpus, queries, qrels, model_revision, config)
+        if blocked is not None:
+            return blocked
         sparse_receipt = self.run_sparse(corpus, queries, qrels, k1, b, top_k)
         if sparse_receipt.status != "MEASURED":
             return self._record("hybrid", "FAILED", corpus, queries, qrels, model_revision,
                                 {"stage": "sparse"}, None, "sparse stage failed")
 
         dense = DenseRetriever(dense_endpoint, model)
-        config = {"rrf_k": rrf_k, "top_k": top_k, "endpoint_set": dense_endpoint is not None}
         if not dense.is_configured():
             return self._record("hybrid", "BLOCKED", corpus, queries, qrels, model_revision, config,
                                 None, "dense endpoint unavailable — hybrid fusion impossible")
@@ -138,8 +161,11 @@ class BenchRunner:
                    pool_size: int):
         """Fairness contract: pool_size is recorded in config; comparisons across
         different pool sizes must be marked INVALID by the comparator."""
-        reranker = CrossEncoderReranker(rerank_endpoint, model)
         config = {"pool_size": pool_size, "endpoint_set": rerank_endpoint is not None}
+        blocked = self._missing_input_receipt("rerank", corpus, queries, qrels, model_revision, config)
+        if blocked is not None:
+            return blocked
+        reranker = CrossEncoderReranker(rerank_endpoint, model)
         if not reranker.is_configured():
             return self._record("rerank", "BLOCKED", corpus, queries, qrels, model_revision, config,
                                 None, "no rerank endpoint configured")
@@ -166,9 +192,12 @@ class BenchRunner:
         differ by an order of magnitude, so cross-family comparisons are INVALID.
         Without a token-level encoder the lane is BLOCKED, never simulated.
         """
-        idx = LateInteractionIndex(encoder)
         config = {"top_k": top_k, "encoder_set": encoder is not None,
                   "family": "multivector"}
+        blocked = self._missing_input_receipt("multivector", corpus, queries, qrels, model_revision, config)
+        if blocked is not None:
+            return blocked
+        idx = LateInteractionIndex(encoder)
         if not idx.is_configured():
             return self._record("multivector", "BLOCKED", corpus, queries, qrels, model_revision,
                                 config, None, "no token-level encoder configured")
