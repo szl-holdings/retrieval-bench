@@ -1,4 +1,9 @@
 """Remote endpoints are admitted only from the operator allowlist (CodeQL py/full-ssrf)."""
+import io
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
 import pytest
 
 from retrieval import fusion
@@ -47,3 +52,87 @@ def test_post_json_refuses_unadmitted_url(monkeypatch):
     monkeypatch.delenv(fusion.ENDPOINT_ALLOWLIST_ENV, raising=False)
     with pytest.raises(fusion.EndpointUnavailable):
         fusion._post_json("https://evil.example/v1/embeddings", {"input": ["x"]})
+
+
+def test_dense_uses_the_exact_configured_endpoint(allowlist, monkeypatch):
+    calls = []
+
+    def urlopen(_opener, request, timeout):
+        calls.append((request.full_url, json.loads(request.data)))
+        return io.BytesIO(json.dumps({"data": [{"index": 0, "embedding": [1, 0]}]}).encode())
+
+    monkeypatch.setattr(fusion.urllib.request.OpenerDirector, "open", urlopen)
+    retriever = fusion.DenseRetriever("https://embed.internal:8443/v1/embeddings", "m")
+    retriever.index(["d1"], ["document"])
+    assert retriever.search("query") == [("d1", 1.0)]
+    assert calls == [
+        ("https://embed.internal:8443/v1/embeddings", {"model": "m", "input": ["document"]}),
+        ("https://embed.internal:8443/v1/embeddings", {"model": "m", "input": ["query"]}),
+    ]
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_rerank_uses_configured_endpoint_and_accepts_tei_results(allowlist, monkeypatch, wrapped):
+    results = [{"index": 1, "score": 0.8}, {"index": 0, "score": 0.2}]
+    body = {"results": results} if wrapped else results
+    calls = []
+
+    def urlopen(_opener, request, timeout):
+        calls.append((request.full_url, json.loads(request.data)))
+        return io.BytesIO(json.dumps(body).encode())
+
+    monkeypatch.setattr(fusion.urllib.request.OpenerDirector, "open", urlopen)
+    reranker = fusion.CrossEncoderReranker("http://localhost:8080/rerank", "m")
+    assert reranker.rerank("query", [("d1", "first"), ("d2", "second")]) == [
+        ("d2", 0.8), ("d1", 0.2),
+    ]
+    assert calls == [("http://localhost:8080/rerank", {
+        "model": "m", "query": "query", "texts": ["first", "second"],
+    })]
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_admitted_endpoint_cannot_redirect_to_unadmitted_destination(monkeypatch, status):
+    destination_calls = []
+
+    class DestinationHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            destination_calls.append(self.path)
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        do_POST = do_GET
+
+        def log_message(self, *args):
+            pass
+
+    destination = ThreadingHTTPServer(("127.0.0.1", 0), DestinationHandler)
+    destination_url = f"http://127.0.0.1:{destination.server_port}/unadmitted"
+
+    class RedirectHandler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.send_response(status)
+            self.send_header("Location", destination_url)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    source = ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+    endpoint = f"http://127.0.0.1:{source.server_port}/rerank"
+    monkeypatch.setenv(fusion.ENDPOINT_ALLOWLIST_ENV, endpoint)
+    threads = [threading.Thread(target=server.serve_forever, daemon=True)
+               for server in (source, destination)]
+    for thread in threads:
+        thread.start()
+    try:
+        with pytest.raises(fusion.EndpointUnavailable):
+            fusion._post_json(endpoint, {"query": "must stay at configured endpoint"}, timeout=2)
+        assert destination_calls == []
+    finally:
+        for server in (source, destination):
+            server.shutdown()
+            server.server_close()
+        for thread in threads:
+            thread.join(timeout=2)
