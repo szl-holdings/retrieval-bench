@@ -6,6 +6,7 @@ API and a cross-encoder scoring API). If no endpoint is configured the lane
 returns BLOCKED — never a fabricated embedding or score.
 """
 import json
+import math
 import os
 import urllib.request
 import urllib.error
@@ -92,18 +93,55 @@ class DenseRetriever:
         if not self.endpoint:
             raise EndpointUnavailable("no embedding endpoint configured")
         body = _post_json(self.endpoint, {"model": self.model, "input": texts}, self.timeout)
-        return [d["embedding"] for d in sorted(body["data"], key=lambda x: x["index"])]
+        data = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(data, list) or len(data) != len(texts):
+            raise ValueError("embedding response must contain one vector per input")
+        vectors = {}
+        dimension = None
+        for entry in data:
+            index = entry.get("index") if isinstance(entry, dict) else None
+            if type(index) is not int or not 0 <= index < len(texts) or index in vectors:
+                raise ValueError("embedding indices must identify each input exactly once")
+            vector = self._vector(entry.get("embedding"))
+            if dimension is not None and len(vector) != dimension:
+                raise ValueError("embedding dimensions must match")
+            dimension = len(vector)
+            vectors[index] = vector
+        return [vectors[index] for index in range(len(texts))]
+
+    @staticmethod
+    def _vector(raw) -> List[float]:
+        if not isinstance(raw, list) or not raw or any(type(x) not in (int, float) for x in raw):
+            raise ValueError("embedding must be a nonempty vector of finite numbers")
+        try:
+            vector = [float(x) for x in raw]
+        except (OverflowError, ValueError):
+            raise ValueError("embedding values must be finite numbers") from None
+        if not all(math.isfinite(x) for x in vector):
+            raise ValueError("embedding values must be finite numbers")
+        return vector
 
     @staticmethod
     def _cos(a: List[float], b: List[float]) -> float:
-        dot = sum(x * y for x, y in zip(a, b))
-        na = sum(x * x for x in a) ** 0.5
-        nb = sum(y * y for y in b) ** 0.5
-        return dot / (na * nb) if na and nb else 0.0
+        a, b = DenseRetriever._vector(a), DenseRetriever._vector(b)
+        if len(a) != len(b):
+            raise ValueError("embedding dimensions must match")
+        scale_a, scale_b = max(map(abs, a)), max(map(abs, b))
+        if not scale_a or not scale_b:
+            return 0.0
+        # Independent scaling avoids overflow/underflow in finite vectors.
+        a, b = [x / scale_a for x in a], [x / scale_b for x in b]
+        dot = math.fsum(x * y for x, y in zip(a, b))
+        na = math.sqrt(math.fsum(x * x for x in a))
+        nb = math.sqrt(math.fsum(y * y for y in b))
+        return dot / (na * nb)
 
     def index(self, doc_ids: List[str], texts: List[str]):
+        if len(doc_ids) != len(texts):
+            raise ValueError("doc_ids and texts must have equal length")
+        vectors = self._embed(texts)
         self.doc_ids = list(doc_ids)
-        self.doc_vecs = self._embed(texts)
+        self.doc_vecs = vectors
 
     def search(self, query: str, top_k: int = 10) -> List[Tuple[str, float]]:
         qv = self._embed([query])[0]
