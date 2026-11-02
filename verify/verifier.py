@@ -26,24 +26,43 @@ REQUIRED = ("plane", "status", "machine", "measured_at", "method", "metrics", "p
 
 def digest(receipt):
     body = {k: v for k, v in receipt.items() if k != "hash"}
-    return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(
+        body, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode()).hexdigest()
+
+
+def unique_object(pairs):
+    """Reject ambiguous JSON before a duplicate key can replace evidence."""
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate JSON field: {key}")
+        value[key] = item
+    return value
 
 
 def check_receipt(r, i):
+    if not isinstance(r, dict):
+        return [f"[{i}] receipt must be an object"]
     errs = [f"[{i}] missing field: {f}" for f in REQUIRED if f not in r]
     if errs:
         return errs
-    if r["plane"] not in PLANES:
+    if not isinstance(r["plane"], str) or r["plane"] not in PLANES:
         errs.append(f"[{i}] unknown plane: {r['plane']}")
-    if r["status"] not in STATUSES:
+    if not isinstance(r["status"], str) or r["status"] not in STATUSES:
         errs.append(f"[{i}] unknown status: {r['status']}")
     m = r["machine"]
     if not isinstance(m, dict) or not all(k in m for k in ("cpu", "ram_gb", "gpu")):
         errs.append(f"[{i}] machine must name cpu, ram_gb, gpu")
-    if r["status"] == "MEASURED" and not r["metrics"]:
+    if not isinstance(r["metrics"], dict):
+        errs.append(f"[{i}] metrics must be an object")
+    elif r["status"] == "MEASURED" and not r["metrics"]:
         errs.append(f"[{i}] MEASURED with empty metrics")
-    if digest(r) != r["hash"]:
-        errs.append(f"[{i}] hash mismatch (recomputed != declared)")
+    try:
+        if digest(r) != r["hash"]:
+            errs.append(f"[{i}] hash mismatch (recomputed != declared)")
+    except (TypeError, ValueError, OverflowError) as exc:
+        errs.append(f"[{i}] receipt is not finite JSON: {exc}")
     return errs
 
 
@@ -58,17 +77,20 @@ def verify(paths):
     for i, p in enumerate(paths):
         try:
             with open(p, encoding="utf-8") as f:
-                r = json.load(f)
+                r = json.load(f, object_pairs_hook=unique_object)
         except Exception as e:
             all_errs.append(f"[{i}] {p}: unreadable JSON: {e}")
             continue
-        all_errs += check_receipt(r, i)
+        errors = check_receipt(r, i)
+        if errors:
+            all_errs.extend(errors)
+            continue
         if r.get("prev_hash", prev) != prev:
             all_errs.append(f"[{i}] {p}: chain break (prev_hash mismatch)")
         prev = r.get("hash", prev)
         if r.get("status") == "MEASURED":
             measured.append(p)
-    return all_errs, measured
+    return all_errs, [] if all_errs else measured
 
 
 if __name__ == "__main__":
