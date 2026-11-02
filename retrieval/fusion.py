@@ -181,8 +181,23 @@ class CrossEncoderReranker:
             "query": query,
             "texts": [t for _, t in candidates],
         }, self.timeout)
-        results = body if isinstance(body, list) else body.get("results", [])
-        scored = [(candidates[r["index"]][0], r.get("relevance_score", r.get("score", 0.0)))
-                  for r in results]
+        results = body if isinstance(body, list) else body.get("results") if isinstance(body, dict) else None
+        if not isinstance(results, list):
+            raise ValueError("rerank response must contain a results list")
+        scored = []
+        seen = set()
+        for entry in results:
+            index = entry.get("index") if isinstance(entry, dict) else None
+            if type(index) is not int or not 0 <= index < len(candidates) or index in seen:
+                raise ValueError("rerank indices must identify distinct candidates in the submitted pool")
+            score = entry.get("relevance_score", entry.get("score"))
+            try:
+                valid_score = type(score) in (int, float) and math.isfinite(score)
+            except OverflowError:
+                valid_score = False
+            if not valid_score:
+                raise ValueError("rerank scores must be finite numbers")
+            seen.add(index)
+            scored.append((candidates[index][0], score))
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored
