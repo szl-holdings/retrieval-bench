@@ -1,0 +1,36 @@
+{
+  "hash": "f16a774b64616cd54994067fcae23a3a734fd092c102cdab1889520361636da9",
+  "machine": {
+    "cpu": "AMD EPYC-Milan Processor",
+    "gpu": "none-cpu-bm25",
+    "ram_gb": 33
+  },
+  "measured_at": "2026-11-04T18:22:13Z",
+  "method": "retrieval.runner.BenchRunner.run_sparse/bm25-seed-v1",
+  "metrics": {
+    "dataset_hash": "3f38c7bcef26a4f967e02d4a6e486ec3430b55020e84a1633977858c89354d80",
+    "fixture": "fixtures/sparse-bm25-seed-v1",
+    "lane": "sparse_bm25",
+    "map@1": 1.0,
+    "map@10": 1.0,
+    "map@5": 1.0,
+    "model_revision": "bm25-k1=1.5-b=0.75",
+    "mrr@1": 1.0,
+    "mrr@10": 1.0,
+    "mrr@5": 1.0,
+    "n_docs": 3,
+    "n_queries": 2,
+    "ndcg@1": 1.0,
+    "ndcg@10": 1.0,
+    "ndcg@5": 1.0,
+    "qrels_hash": "53bfeaf9632bf00865767fedf81413316cb0ff8a4b9724eb2a7e586c9283cfc3",
+    "query_hash": "e9fc0a34bc2e3c8266a5bf97669cb6fff0226e70ebfb11c599841f64a15b6b55",
+    "recall@1": 1.0,
+    "recall@10": 1.0,
+    "recall@5": 1.0,
+    "result_hash": "03a0fbf7e73088acc3a894b4386e992857458d3f05c035ffb80082b6ebd47596"
+  },
+  "plane": "retrieval",
+  "prev_hash": "dff9bc08a2b4cfed07337b8eb31ca7e6382f4a9da87314cc0e328a89fb89ab06",
+  "status": "MEASURED"
+}
