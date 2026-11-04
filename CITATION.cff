@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+title: "retrieval-bench — SZL Holdings retrieval benchmark plane"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - name: "SZL Holdings"
+repository-code: "https://github.com/szl-holdings/retrieval-bench"
+url: "https://a-11-oy.com"
+license: Apache-2.0
