@@ -21,7 +21,7 @@ This repository owns retrieval-plane benchmark code, retrieval receipts, and the
 
 ## Current evidence state
 
-The checked-in retrieval receipt chain currently contains only `receipts/000-genesis.json`, whose status is `BLOCKED`, method states that no run was executed, and metrics are empty. Therefore this repository currently has **zero admitted measured retrieval rows**.
+The receipt chain starts at `receipts/000-genesis.json` (`BLOCKED`, no run). `receipts/001-sparse-bm25-seed-v1.json` admits the first **MEASURED** sparse BM25 seed (fixture `fixtures/sparse-bm25-seed-v1`, 2 queries / 3 docs). Public `site/results.json` exports that one MEASURED row via `tools/sync_results.py`. Larger corpora and dense/hybrid/rerank lanes remain unclaimed until their own MEASURED receipts land.
 
 `evidence/eclipse-native-repaired-20260905.json` is a local synthetic verifier-control artifact (`scope: LOCAL_FIXTURE_VERIFIER_CONTROLS`, fixture hardware, dated 2000-01-01). It demonstrates mutation detection for the verifier; it is not benchmark evidence and must not be presented as measured production performance.
 
@@ -43,7 +43,7 @@ The consolidated public bench publisher, [szl-holdings/frontier-bench](https://g
 
 ## Status
 
-Foundation source is present. Current admitted measurement state is **EMPTY / BLOCKED genesis only**. Real benchmark execution and any later promotion remain separate evidence-producing steps.
+Foundation source is present. Admitted measurement state is **1 MEASURED sparse BM25 seed row** plus genesis BLOCKED. Dense/hybrid/rerank/multivector promotion remain separate evidence-producing steps.
 
 ## Remote endpoint admission
 
@@ -53,4 +53,4 @@ Configure each service's final request URL, including `/v1/embeddings` or `/rera
 
 ## Cost-aware route proposals (software)
 
-`python/szl_prisca_router` emits Soft Shield mouth proposals (`PROPOSAL_ONLY`, `NOT_CLAIMED`). It is not a MEASURED retrieval leaderboard entry.
+`python/szl_prisca_router` emits Soft Shield mouth proposals (`PROPOSAL_ONLY`). Router win claims stay `NOT_CLAIMED` until cost-aware route traces are MEASURED; the sparse BM25 seed receipt does not promote the router.
