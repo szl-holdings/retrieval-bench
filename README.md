@@ -50,3 +50,7 @@ Foundation source is present. Current admitted measurement state is **EMPTY / BL
 Dense and rerank lanes call an operator-configured embedding or rerank service. The API accepts an `endpoint` / `dense_endpoint` / `rerank_endpoint` field, but a request can only select one of the endpoints the operator has configured in `RETRIEVAL_BENCH_ENDPOINTS` (comma-separated absolute URLs, exact match). With the variable unset, every remote lane returns `BLOCKED` — the plane never issues a request to a caller-chosen URL.
 
 Configure each service's final request URL, including `/v1/embeddings` or `/rerank`. Redirects are rejected before any follow-up request; the selected URL must serve the response directly.
+
+## Cost-aware route proposals (software)
+
+`python/szl_prisca_router` emits Soft Shield mouth proposals (`PROPOSAL_ONLY`, `NOT_CLAIMED`). It is not a MEASURED retrieval leaderboard entry.
