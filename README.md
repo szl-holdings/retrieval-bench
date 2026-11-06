@@ -54,3 +54,9 @@ Configure each service's final request URL, including `/v1/embeddings` or `/rera
 ## Cost-aware route proposals (software)
 
 `python/szl_prisca_router` emits Soft Shield mouth proposals (`PROPOSAL_ONLY`). Router win claims stay `NOT_CLAIMED` until cost-aware route traces are MEASURED; the sparse BM25 seed receipt does not promote the router.
+
+Estate on Hugging Face: models, datasets and Spaces are published under the [SZLHOLDINGS](https://huggingface.co/SZLHOLDINGS) org.
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE).
